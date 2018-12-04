@@ -1,0 +1,771 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {
+    "scrolled": false
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "CPython 3.6.2\n",
+      "IPython 6.1.0\n",
+      "\n",
+      "tensorflow 1.0.0\n",
+      "numpy 1.13.3\n",
+      "\n",
+      "compiler   : GCC 4.2.1 (Apple Inc. build 5666) (dot 3)\n",
+      "system     : Darwin\n",
+      "release    : 17.3.0\n",
+      "machine    : x86_64\n",
+      "processor  : i386\n",
+      "CPU cores  : 4\n",
+      "interpreter: 64bit\n"
+     ]
+    }
+   ],
+   "source": [
+    "%load_ext watermark\n",
+    "%watermark -p tensorflow,numpy -v -m"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 36,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import codecs\n",
+    "import jieba\n",
+    "import nltk\n",
+    "import numpy as np\n",
+    "import tensorflow as tf\n",
+    "from collections import Counter\n",
+    "import time\n",
+    "import matplotlib.pyplot as plt \n",
+    "\n",
+    "from tensorflow.contrib.legacy_seq2seq import basic_rnn_seq2seq, embedding_rnn_seq2seq, sequence_loss\n",
+    "from tensorflow.python.ops import variable_scope\n",
+    "%matplotlib inline"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 数据清洗"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "en_train_path = '../code/TED_en_train.txt'\n",
+    "zh_train_path = '../code/TED_zh_train.txt'\n",
+    "en_test_path = '../code/TED_en_test.txt'\n",
+    "zh_test_path = '../code/TED_zh_test.txt'"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 英文分词\n",
+    "def load_en_data(en_path):\n",
+    "    line_no = 0\n",
+    "    limits = 1000 # 限定读取大小\n",
+    "    en_data = []\n",
+    "    all_words = []\n",
+    "    with open(en_path, 'r', encoding='utf-8', errors='ignore') as f:\n",
+    "        for line in f.readlines():\n",
+    "            line_no += 1\n",
+    "            if line_no >= limits:\n",
+    "                break\n",
+    "            words = nltk.tokenize.word_tokenize(line.strip())\n",
+    "            en_data.append(words)\n",
+    "            for word in words:\n",
+    "                all_words.append(word)\n",
+    "    return en_data,all_words"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "en_train_data,en_train_words = load_en_data(en_train_path)\n",
+    "en_test_data,en_test_words = load_en_data(en_test_path)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 48,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "image/png": "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\nRK5CYII=\n",
+      "text/plain": [
+       "<matplotlib.figure.Figure at 0x1243c1518>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "en_lengths = [len(s) for s in en_train_data] \n",
+    "plt.hist(en_lengths);"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 中文分词\n",
+    "def load_zh_data(zh_path):\n",
+    "    zh_data = []\n",
+    "    all_words = []\n",
+    "    line_no = 0\n",
+    "    limits = 1000 # 限定读取大小\n",
+    "    with open(zh_path, 'r') as f:\n",
+    "        for line in f.readlines():\n",
+    "            line_no += 1\n",
+    "            if line_no >= limits:\n",
+    "                break\n",
+    "            words = [word for word in jieba.cut(line.strip())]\n",
+    "            zh_data.append(words)\n",
+    "            for word in words:\n",
+    "                all_words.append(word)\n",
+    "    return zh_data,all_words"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {
+    "scrolled": false
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "Building prefix dict from the default dictionary ...\n",
+      "Loading model from cache /var/folders/g5/df85rhb10jb9qpw1wdlh0t_m0000gn/T/jieba.cache\n",
+      "Loading model cost 0.929 seconds.\n",
+      "Prefix dict has been built succesfully.\n"
+     ]
+    }
+   ],
+   "source": [
+    "zh_train_data,zh_train_words = load_zh_data(zh_train_path)\n",
+    "zh_test_data,zh_test_words = load_zh_data(zh_test_path)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 49,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "image/png": "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\njTP0ktQ4Qy9JjTP0ktQ4Qy9JjTP0ktQ4Qy9JjTP0ktQ4Qy9JjTP0ktQ4Qy9JjTP0ktQ4Qy9JjTP0\nktQ4Qy9JjTP0ktQ4Qy9JjTP0ktQ4Qy9JjVsw9EleSHImyeGesWuSvJXkw+7x6m48SX6Y5HiSQ0lu\nHObkJUkL6+eM/kXg9gvGdgD7q2ojsL97DnAHsLH72QY8uzzTlCQt1YKhr6p3gE8vGN4C7O6WdwN3\n94z/qGb8DPhGknXLNVlJ0uJdvsTt1lbVqW75E2Btt7we+LhnvZPd2CmGZHzHm8P61ZLUhIH/Mbaq\nCqjFbpdkW5LJJJPT09ODTkOSdBFLDf3p85dkuscz3fgUsKFnvWu7sVmqaldVTVTVxNjY2BKnIUla\nyFIv3ewFtgI7u8c3esYfSvIK8LfAb3su8UhLNspLdCd23jWyfUvLYcHQJ3kZuBVYk+Qk8Dgzgd+T\n5AHgI+DebvV9wJ3AceB3wPeHMGdJ0iIsGPqquv8iL902x7oFbB90UpKk5eMnYyWpcYZekhpn6CWp\ncYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcUv9\nC1PSqjGqv27lX7bScvGMXpIaZ+glqXGGXpIaZ+glqXGGXpIaZ+glqXGGXpIaZ+glqXGGXpIaZ+gl\nqXGGXpIaZ+glqXGGXpIaN9C3VyY5AXwOnAPOVtVEkmuAfwXGgRPAvVX1P4NNU5K0VMtxRv/tqtpc\nVRPd8x3A/qraCOzvnkuSRmQYl262ALu75d3A3UPYhySpT4OGvoCfJDmQZFs3traqTnXLnwBr59ow\nybYkk0kmp6enB5yGJOliBv0LU7dU1VSSPwPeSvLL3herqpLUXBtW1S5gF8DExMSc60iSBjfQGX1V\nTXWPZ4DXgZuA00nWAXSPZwadpCRp6ZYc+iRfT3LV+WXgO8BhYC+wtVttK/DGoJOUJC3dIJdu1gKv\nJzn/e35cVf+e5BfAniQPAB8B9w4+TUnSUi059FX1K+Bv5hj/b+C2QSYlSVo+fjJWkhpn6CWpcYZe\nkhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhpn\n6CWpcYZekhpn6CWpcYZekhpn6CWpcYZekhp3+agnIGlu4zveHMl+T+y8ayT71fB4Ri9JjTP0ktQ4\nL91I+iOjumQEXjYaFs/oJalxhl6SGmfoJalxQwt9ktuTfJDkeJIdw9qPJGl+Qwl9ksuAfwbuADYB\n9yfZNIx9SZLmN6y7bm4CjlfVrwCSvAJsAY4OaX+SGjDKO35G5VLcaTSsSzfrgY97np/sxiRJl9jI\n7qNPsg3Y1j393yQfAGuA34xqTiuUx2Q2j8lsHpPZvhLHJP8w0OZ/2c9Kwwr9FLCh5/m13dgfVNUu\nYFfvWJLJqpoY0py+kjwms3lMZvOYzOYx+dKwLt38AtiY5LokfwrcB+wd0r4kSfMYyhl9VZ1N8hDw\nH8BlwAtVdWQY+5IkzW9o1+irah+wb5Gb7Vp4lVXHYzKbx2Q2j8lsHpNOqmrUc5AkDZFfgSBJjVsR\noffrEmZLciLJ+0kOJpkc9XxGJckLSc4kOdwzdk2St5J82D1ePco5XmoXOSZPJJnq3i8Hk9w5yjle\nakk2JHk7ydEkR5I83I2v6vfKeSMPvV+XMK9vV9XmVX6L2IvA7ReM7QD2V9VGYH/3fDV5kdnHBOCZ\n7v2yufs3stXkLPBoVW0Cbga2dx1Z7e8VYAWEnp6vS6iq/wPOf12CRFW9A3x6wfAWYHe3vBu4+5JO\nasQuckxWtao6VVXvdcufA8eY+TT+qn6vnLcSQu/XJcytgJ8kOdB9ilhfWltVp7rlT4C1o5zMCvJQ\nkkPdpZ1VeYkCIMk4cAPwLr5XgJURes3tlqq6kZlLWtuT/N2oJ7QS1cxtY946Bs8C1wObgVPAU6Od\nzmgkuRJ4FXikqj7rfW01v1dWQugX/LqE1aiqprrHM8DrzFzi0ozTSdYBdI9nRjyfkauq01V1rqq+\nAJ5jFb5fklzBTORfqqrXumHfK6yM0Pt1CRdI8vUkV51fBr4DHJ5/q1VlL7C1W94KvDHCuawI52PW\nuYdV9n5JEuB54FhVPd3zku8VVsgHprpbwf6JL78u4ckRT2mkkvwVM2fxMPPp5R+v1mOS5GXgVma+\nifA08Djwb8Ae4C+Aj4B7q2rV/OPkRY7JrcxctingBPBgz7Xp5iW5Bfgv4H3gi274MWau06/a98p5\nKyL0kqThWQmXbiRJQ2ToJalxhl6SGmfoJalxhl6SGmfoJalxhl6SGmfoJalx/w+S51ZiEMZY8AAA\nAABJRU5ErkJggg==\n",
+      "text/plain": [
+       "<matplotlib.figure.Figure at 0x124af4320>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "zh_lengths = [len(s) for s in zh_train_data] \n",
+    "plt.hist(zh_lengths);"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 词表 Init\n",
+    "UNK = \"<UNK>\"  # 标记未出现在词汇表中的字符\n",
+    "PAD = \"<PAD>\"  \n",
+    "GO = \"<GO>\"    # 开始\n",
+    "EOS = \"<EOS>\"  # 结束\n",
+    "START_VOCABULART = [UNK, PAD, GO, EOS]\n",
+    "#vocab_size = 10000"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# 构建英语词表，及将词标注 Index ，去掉词频小于 2 的词\n",
+    "en_vocab = []\n",
+    "for word,cnt in Counter(en_train_words).most_common():\n",
+    "    if cnt > 1:\n",
+    "        en_vocab.append(word)\n",
+    "    else:\n",
+    "        break\n",
+    "en_idx_dict = dict(zip(en_vocab, range(len(en_vocab))))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 13,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 构建中文词表，及将词标注 Index，去掉词频小于 2 的词\n",
+    "zh_vocab = START_VOCABULART\n",
+    "for word,cnt in Counter(zh_train_words).most_common():\n",
+    "    if cnt > 1:\n",
+    "        zh_vocab.append(word)\n",
+    "    else:\n",
+    "        break\n",
+    "zh_idx_dict = dict(zip(zh_vocab, range(len(zh_vocab))))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 得到词表大小\n",
+    "num_encoder_symbols = len(en_vocab)\n",
+    "num_decoder_symbols = len(zh_vocab)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 为中文集增加 token\n",
+    "def get_token(data):\n",
+    "    zh_set = []\n",
+    "    for line in data:\n",
+    "        zh_set.append(['<GO>'] + line + ['<EOS>'])\n",
+    "    return zh_set"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "zh_train_set = get_token(zh_train_data)\n",
+    "zh_test_set = get_token(zh_test_data)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 将句子转换为向量\n",
+    "def convert_to_vector(data, vocab, idx_dict):\n",
+    "    data_index = []\n",
+    "    for line in data:\n",
+    "        index_content = []\n",
+    "        for word in line:\n",
+    "            idx = idx_dict[word] if (word in vocab) else 0\n",
+    "            index_content.append(idx)\n",
+    "        data_index.append(index_content)\n",
+    "    return data_index"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "metadata": {
+    "collapsed": true,
+    "scrolled": false
+   },
+   "outputs": [],
+   "source": [
+    "en_train_index = convert_to_vector(en_train_data, en_vocab, en_idx_dict)\n",
+    "zh_train_index = convert_to_vector(zh_train_set, zh_vocab, zh_idx_dict)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "en_test_index = convert_to_vector(en_test_data, en_vocab, en_idx_dict)\n",
+    "zh_test_index = convert_to_vector(zh_test_set, zh_vocab, zh_idx_dict)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 将数据分为不同的 buckets\n",
+    "_buckets = [(10, 10), (15, 15), (20, 20)]\n",
+    "def to_buckets(en_train_data, zh_train_set):\n",
+    "    data_set = [[] for _ in _buckets]\n",
+    "    for source, target in zip(en_train_data, zh_train_set):\n",
+    "        for bucket_id, (source_size, target_size) in enumerate(_buckets):\n",
+    "            if len(source) <= source_size and len(target) <= target_size:\n",
+    "                data_set[bucket_id].append([source, target])\n",
+    "                break\n",
+    "    return data_set"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {
+    "collapsed": true,
+    "scrolled": true
+   },
+   "outputs": [],
+   "source": [
+    "train_data_set = to_buckets(en_train_index, zh_train_index)\n",
+    "test_data_set = to_buckets(en_test_index, zh_test_index)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 对数据完成 padding，encoder 在开头 padding，decoder 在结尾 padding\n",
+    "def get_padding(inputs, _buckets):\n",
+    "    PAD = 1 # idx of PAD\n",
+    "    data_set = [[] for _ in _buckets]\n",
+    "    for bucket_id, (source_size, target_size) in enumerate(_buckets):\n",
+    "        data = inputs[bucket_id]\n",
+    "        for source, target in data:\n",
+    "            new_source = [PAD] * (source_size - len(source)) + source\n",
+    "            new_target = target + [PAD] * (target_size - len(target))\n",
+    "            data_set[bucket_id].append([new_source, new_target])\n",
+    "    return data_set"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 28,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "train_data_padding = get_padding(train_data_set, _buckets)\n",
+    "test_data_padding = get_padding(test_data_set, _buckets)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "data_sizes = [len(train_data_padding[i]) for i in range(len(_buckets))]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {
+    "scrolled": false
+   },
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "[660, 289, 46]"
+      ]
+     },
+     "execution_count": 31,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "data_sizes"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 构建 seq2seq 模型"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 重置 graph\n",
+    "tf.reset_default_graph()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 模型相关参数\n",
+    "cell_size = 128\n",
+    "embedding_size = 128\n",
+    "batch_size = 50"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 定义 GRU Cell\n",
+    "cell = tf.contrib.rnn.GRUCell(cell_size)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "#取句子 padding 后的最大可能长度\n",
+    "max_encoder_length, max_decoder_length = _buckets[-1]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 27,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# placeholders init\n",
+    "encoder_placeholders = [\n",
+    "    tf.placeholder(tf.int32, shape=[None], name=\"encoder_%d\" % i)\n",
+    "    for i in range(max_encoder_length)]\n",
+    "decoder_placeholders = [\n",
+    "    tf.placeholder(tf.int32, shape=[None], name=\"decoder_%d\" % i)\n",
+    "    for i in range(max_decoder_length)]\n",
+    "target_placeholders = [\n",
+    "    tf.placeholder(tf.int32, shape=[None], name=\"target_%d\" % i)\n",
+    "    for i in range(max_decoder_length)]\n",
+    "target_weights_placeholders = [\n",
+    "    tf.placeholder(tf.float32, shape=[None], name=\"decoder_weight_%d\" % i)\n",
+    "    for i in range(max_decoder_length)]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "num_samples = 256\n",
+    "w_t = tf.get_variable(\"proj_w\", [num_decoder_symbols, batch_size], dtype=tf.float32)\n",
+    "w = tf.transpose(w_t)\n",
+    "b = tf.get_variable(\"proj_b\", [num_decoder_symbols], dtype=tf.float32)\n",
+    "output_projection = (w, b)\n",
+    "\n",
+    "def softmax_loss_function(labels, logits):\n",
+    "    labels = tf.reshape(labels, [-1, 1])\n",
+    "    # We need to compute the sampled_softmax_loss using 32bit floats to\n",
+    "    # avoid numerical instabilities.\n",
+    "    local_w_t = tf.cast(w_t, tf.float32)\n",
+    "    local_b = tf.cast(b, tf.float32)\n",
+    "    local_inputs = tf.cast(logits, tf.float32)\n",
+    "    return tf.cast(\n",
+    "        tf.nn.sampled_softmax_loss(\n",
+    "            weights=local_w_t,\n",
+    "            biases=local_b,\n",
+    "            labels=labels,\n",
+    "            inputs=local_inputs,\n",
+    "            num_sampled=num_samples,\n",
+    "            num_classes=num_decoder_symbols),\n",
+    "            dtype=tf.float32)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 用于model_with_buckets模型的seq2seq参数\n",
+    "def seq2seq_f(encoder_inputs, decoder_inputs, do_decode):\n",
+    "    return embedding_rnn_seq2seq(\n",
+    "                        encoder_inputs, \n",
+    "                        decoder_inputs, \n",
+    "                        cell,\n",
+    "                        num_encoder_symbols, \n",
+    "                        num_decoder_symbols,\n",
+    "                        embedding_size, \n",
+    "                        output_projection=None,\n",
+    "                        feed_previous=False)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "outputs, losses = tf.contrib.legacy_seq2seq.model_with_buckets(\n",
+    "        encoder_placeholders, decoder_placeholders, target_placeholders,\n",
+    "        target_weights_placeholders, _buckets, lambda x, y: seq2seq_f(x, y, False),\n",
+    "        softmax_loss_function=None)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 准备 feed 数据"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 32,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "def left_shift(decoder_inputs):\n",
+    "    \"\"\"generate targets grom decoder_inputs\"\"\"\n",
+    "    return [list(input_[1:]) + [_PAD_ID] for input_ in decoder_inputs]\n",
+    "\n",
+    "def get_bucket_inputs(encoder_data, decoder_data, bucket_id):\n",
+    "    encoder_inputs = encoder_data[bucket_id]\n",
+    "    decoder_inputs = decoder_data[bucket_id]\n",
+    "    return (encoder_inputs, decoder_inputs)\n",
+    "\n",
+    "def get_batch_inputs(encoder_data, decoder_data, bucket_id, batch_start, batch_size):\n",
+    "    encoder_inputs = encoder_data[bucket_id][batch_start : batch_start+batch_size]\n",
+    "    decoder_inputs = decoder_data[bucket_id][batch_start : batch_start+batch_size]\n",
+    "    return (encoder_inputs, decoder_inputs)\n",
+    "\n",
+    "def generate_feed_dict(inputs_tuple, encoder_size, decoder_size):\n",
+    "    \"\"\"对 inputs 做转置, 并喂给 placeholder 列表, 得到 feed_dict\"\"\"\n",
+    "    encoder_inputs, decoder_inputs = inputs_tuple\n",
+    "    encoder_inputs = list(zip(*encoder_inputs))\n",
+    "    target_inputs = list(zip(*left_shift(decoder_inputs)))\n",
+    "    decoder_inputs = list(zip(*decoder_inputs)) \n",
+    "    \n",
+    "    feed_dict = dict()\n",
+    "    # Prepare input data\n",
+    "    for i in range(encoder_size):\n",
+    "        # 这里用 placeholder 或者 placeholder.name 都可以\n",
+    "        feed_dict[encoder_placeholders[i].name] = np.asarray(encoder_inputs[i], dtype=int)\n",
+    "    for i in range(decoder_size):\n",
+    "        feed_dict[decoder_placeholders[i].name] = np.asarray(decoder_inputs[i], dtype=int)\n",
+    "        feed_dict[target_placeholders[i].name] = np.asarray(target_inputs[i], dtype=int)        \n",
+    "        # 这里使用 weights 把 <PAD> 的损失屏蔽了\n",
+    "        feed_dict[target_weights_placeholders[i].name] = np.asarray(\n",
+    "            [float(idx != _PAD_ID) for idx in target_inputs[i]], dtype=float)\n",
+    "    return feed_dict"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 训练模型"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 33,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": [
+    "# 训练相关参数\n",
+    "epochs = 500\n",
+    "print_loss_every = 5\n",
+    "learning_rate = 3\n",
+    "batch_size = 50"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 35,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# 把不同 bucket 的 loss 分别传给 optimizer, 得到不同的 train_step. 不知可否?\n",
+    "train_steps = [tf.train.AdagradOptimizer(learning_rate).minimize(losses[i]) \n",
+    "               for i in range(len(_buckets))]\n",
+    "\n",
+    "sess = tf.Session()\n",
+    "sess.run(tf.global_variables_initializer())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 36,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Epoch bucket-0 bucket-1 bucket-2 \n",
+      "\n",
+      "   0 "
+     ]
+    },
+    {
+     "ename": "NameError",
+     "evalue": "name 'encoder_data' is not defined",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[0;31m---------------------------------------------------------------------------\u001b[0m",
+      "\u001b[0;31mNameError\u001b[0m                                 Traceback (most recent call last)",
+      "\u001b[0;32m<ipython-input-36-c68b4dee8d9e>\u001b[0m in \u001b[0;36m<module>\u001b[0;34m()\u001b[0m\n\u001b[1;32m     15\u001b[0m             \u001b[0;31m# 输出 loss 过程信息\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     16\u001b[0m             \u001b[0;32mif\u001b[0m \u001b[0mi\u001b[0m \u001b[0;34m%\u001b[0m \u001b[0mprint_loss_every\u001b[0m \u001b[0;34m==\u001b[0m \u001b[0;36m0\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0;32m---> 17\u001b[0;31m                 \u001b[0mbucket_inputs\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mget_bucket_inputs\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mencoder_data\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mdecoder_data\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mbucket_id\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[0m\u001b[1;32m     18\u001b[0m                 \u001b[0mbucket_feed\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mgenerate_feed_dict\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mbucket_inputs\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mencoder_size\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mdecoder_size\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n\u001b[1;32m     19\u001b[0m                 \u001b[0mloss_val\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0msess\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mrun\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mlosses\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0mbucket_id\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mfeed_dict\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0mbucket_feed\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+      "\u001b[0;31mNameError\u001b[0m: name 'encoder_data' is not defined"
+     ]
+    }
+   ],
+   "source": [
+    "# Training\n",
+    "start_time = time.time()\n",
+    "try:\n",
+    "    print('Epoch ' + ''.join(['bucket-{} '.format(i) for i in range(len(_buckets))]))\n",
+    "    for i in range(epochs):\n",
+    "        if i % print_loss_every == 0:\n",
+    "            print('\\n{: 4d}'.format(i), end=' ')\n",
+    "\n",
+    "        for bucket_id in range(len(_buckets)):\n",
+    "            cur_data_size = data_sizes[bucket_id]\n",
+    "            if cur_data_size == 0:\n",
+    "                continue  # 某个 bucket 为空的特殊情形\n",
+    "            encoder_size, decoder_size = _buckets[bucket_id]\n",
+    "            \n",
+    "            # 输出 loss 过程信息\n",
+    "            if i % print_loss_every == 0:\n",
+    "                bucket_inputs = get_bucket_inputs(encoder_data, decoder_data, bucket_id)\n",
+    "                bucket_feed = generate_feed_dict(bucket_inputs, encoder_size, decoder_size)\n",
+    "                loss_val = sess.run(losses[bucket_id], feed_dict=bucket_feed)\n",
+    "                print('{: 8.4f}'.format(loss_val), end=' ')\n",
+    "            \n",
+    "            # 训练\n",
+    "            for batch_start in range(0, cur_data_size, batch_size):\n",
+    "                batch_inputs = get_batch_inputs(\n",
+    "                    encoder_data, decoder_data, bucket_id, batch_start, batch_size)\n",
+    "                batch_feed = generate_feed_dict(batch_inputs, encoder_size, decoder_size)\n",
+    "                sess.run(train_steps[bucket_id], feed_dict=batch_feed)\n",
+    "except KeyboardInterrupt:\n",
+    "    print('\\nKeyboardInterrup')\n",
+    "\n",
+    "print('Train time: {} s'.format(time.time() - start_time))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "collapsed": true
+   },
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.2"
+  },
+  "toc": {
+   "nav_menu": {},
+   "number_sections": true,
+   "sideBar": true,
+   "skip_h1_title": false,
+   "toc_cell": false,
+   "toc_position": {},
+   "toc_section_display": "block",
+   "toc_window_display": false
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
